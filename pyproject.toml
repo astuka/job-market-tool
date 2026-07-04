@@ -13,6 +13,7 @@ dependencies = [
     "plotly>=5.18",
     "fastapi>=0.104",
     "uvicorn>=0.24",
+    "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]
@@ -31,6 +32,7 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
+ignore = ["E501"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/job_market"]

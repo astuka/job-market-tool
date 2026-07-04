@@ -10,6 +10,7 @@ venv/
 # DuckDB
 data/*.duckdb
 data/*.duckdb.wal
+data/cache/
 
 # Config with secrets
 .env
@@ -22,3 +23,4 @@ config.local.yaml
 # OS
 Thumbs.db
 .DS_Store
+.hermes-tmp
