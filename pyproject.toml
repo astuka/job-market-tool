@@ -1,0 +1,36 @@
+[project]
+name = "job-market-tool"
+version = "0.1.0"
+description = "Two-tier job market tracker: macro growth signals + live posting drilldown"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.31",
+    "duckdb>=0.10",
+    "pandas>=2.1",
+    "pyyaml>=6.0",
+    "streamlit>=1.30",
+    "plotly>=5.18",
+    "fastapi>=0.104",
+    "uvicorn>=0.24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.1",
+    "pytest>=7.4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/job_market"]
