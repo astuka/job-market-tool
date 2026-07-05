@@ -6,6 +6,7 @@ Tier 2 (right): Postings drilldown for selected occupation
 Run: streamlit run src/job_market/dashboard/app.py
 """
 
+from datetime import datetime
 from pathlib import Path
 
 import duckdb
@@ -107,6 +108,29 @@ def main():
             "- `python -m job_market.metrics.growth`"
         )
         return
+
+    # --- Data freshness badge ---
+    status_path = PROJECT_ROOT / "data" / "ingest_status.json"
+    if status_path.exists():
+        import json
+
+        status = json.loads(status_path.read_text())
+        last_run_str = status.get("last_run_overall", "")
+        if last_run_str:
+            try:
+                last_run = datetime.fromisoformat(last_run_str)
+                days_old = (datetime.now() - last_run).days
+                if days_old <= 7:
+                    st.sidebar.success(f"✅ Data fresh — last updated {days_old}d ago")
+                elif days_old <= 10:
+                    st.sidebar.warning(f"⚠️ Data {days_old}d old — run weekly ingest")
+                else:
+                    st.sidebar.error(f"🔴 Data {days_old}d old — STALE. Run ingest!")
+                st.sidebar.caption(f"Last run: {last_run.strftime('%Y-%m-%d %H:%M')}")
+            except ValueError:
+                st.sidebar.info("Last run date unreadable")
+    else:
+        st.sidebar.info("No ingest status yet — run the weekly script")
 
     # --- Sidebar filters ---
     st.sidebar.header("Filters")
