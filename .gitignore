@@ -24,3 +24,4 @@ config.local.yaml
 Thumbs.db
 .DS_Store
 .hermes-tmp
+.hermes-tmp

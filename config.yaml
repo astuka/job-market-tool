@@ -39,9 +39,8 @@ sources:
     user_agent: "job-market-tool/contact@example.com"
 
   adzuna:
-    enabled: false  # Requires API key — enable in Phase 5
-    app_id: null
-    app_key: null
+    enabled: true
+    # Credentials via env vars: ADZUNA_APP_ID, ADZUNA_APP_KEY
     country: "us"
 
 # Knowledge-work SOC code prefixes (15-XX through 29-XX + 11-XX + 13-XX)

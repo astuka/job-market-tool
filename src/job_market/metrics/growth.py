@@ -140,20 +140,63 @@ def compute_growth_score() -> int:
         print("  No postings table yet — posting_count_yoy will be neutral (0.5)")
         posting_counts = pd.DataFrame()
 
-    # --- Component 2: Median pay YoY ---
-    print("\n[3/4] Computing median pay from postings...")
+    # --- Component 2: Median pay YoY from Adzuna history ---
+    print("\n[3/4] Computing median pay YoY from Adzuna history...")
     try:
-        median_pay = con.execute("""
-            SELECT
-                AVG((salary_min + salary_max) / 2) as avg_salary
-            FROM postings
-            WHERE salary_min IS NOT NULL AND salary_max IS NOT NULL
-        """).fetchone()
-        overall_median = median_pay[0] if median_pay and median_pay[0] else 0
-        print(f"  Overall avg salary across postings: ${overall_median:,.0f}")
-    except Exception:
-        print("  No salary data in postings — median_pay_yoy will use BLS wages only")
-        overall_median = 0
+        adzuna_history = con.execute("""
+            SELECT category, month, avg_salary
+            FROM adzuna_history
+            ORDER BY category, month
+        """).fetchdf()
+
+        if not adzuna_history.empty:
+            print(
+                f"  {len(adzuna_history)} months of Adzuna salary history across "
+                f"{adzuna_history['category'].nunique()} categories"
+            )
+
+            # Compute YoY per category
+            pay_yoy_by_cat = {}
+            for cat in adzuna_history["category"].unique():
+                cat_data = adzuna_history[adzuna_history["category"] == cat].sort_values("month")
+                if len(cat_data) >= 2:
+                    first_sal = cat_data.iloc[0]["avg_salary"]
+                    last_sal = cat_data.iloc[-1]["avg_salary"]
+                    if first_sal > 0:
+                        yoy = (last_sal - first_sal) / first_sal
+                        pay_yoy_by_cat[cat] = yoy
+                        print(f"    {cat}: {yoy:+.1%} YoY")
+
+            # Map categories to SOC codes (rough mapping)
+            cat_to_soc = {
+                "it-jobs": "15",
+                "accounting-finance-jobs": "13",
+                "engineering-jobs": "17",
+                "healthcare-nursing-jobs": "29",
+                "legal-jobs": "23",
+                "consultancy-jobs": "13",
+                "hr-jobs": "11",
+                "creative-design-jobs": "27",
+            }
+
+            # Assign pay_yoy to occupations based on their SOC prefix
+            bls_proj["pay_yoy"] = 0.0
+            for soc_prefix, yoy in [
+                (v, pay_yoy_by_cat[k]) for k, v in cat_to_soc.items() if k in pay_yoy_by_cat
+            ]:
+                mask = bls_proj["occupation_code"].str.startswith(soc_prefix)
+                bls_proj.loc[mask, "pay_yoy"] = yoy
+
+            # For occupations without a match, use average
+            avg_yoy = sum(pay_yoy_by_cat.values()) / len(pay_yoy_by_cat) if pay_yoy_by_cat else 0
+            bls_proj.loc[bls_proj["pay_yoy"] == 0.0, "pay_yoy"] = avg_yoy
+            print(f"  Average YoY across categories: {avg_yoy:+.1%}")
+        else:
+            print("  No Adzuna history — using BLS wages only")
+            bls_proj["pay_yoy"] = 0.0
+    except Exception as e:
+        print(f"  No Adzuna history table: {e}")
+        bls_proj["pay_yoy"] = 0.0
 
     # --- Component 4: Inverse HHI (employer concentration) ---
     print("\n[4/4] Computing employer concentration (HHI)...")
@@ -175,8 +218,14 @@ def compute_growth_score() -> int:
     # Normalize BLS projected growth % to [0,1]
     result["proj_growth_norm"] = normalize(result["employment_change_pct"])
 
-    # Median wage from BLS projections as pay component
-    result["pay_norm"] = normalize(result["median_annual_wage"])
+    # Median wage from BLS projections (absolute level)
+    result["pay_level_norm"] = normalize(result["median_annual_wage"])
+
+    # Pay YoY from Adzuna history (slope — is pay growing?)
+    result["pay_yoy_norm"] = normalize(result["pay_yoy"])
+
+    # Combined pay component: 50% level + 50% growth
+    result["pay_norm"] = 0.5 * result["pay_level_norm"] + 0.5 * result["pay_yoy_norm"]
 
     # Posting count YoY — we don't have historical data yet (Phase 5 Adzuna will add this)
     # For now, use annual_openings as a proxy for posting volume
