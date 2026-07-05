@@ -300,6 +300,31 @@ def main():
     else:
         st.info("👆 Select an occupation above to see live job postings with salaries.")
 
+    # --- Export section ---
+    st.header("Export Data")
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("📥 Export Growth Metrics (CSV)"):
+            metrics_df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "Download growth_metrics.csv",
+                data=metrics_df.to_csv(index=False).encode("utf-8"),
+                file_name="growth_metrics.csv",
+                mime="text/csv",
+            )
+    with col2:
+        if st.button("📥 Export Postings (CSV)"):
+            all_postings = load_postings()
+            if not all_postings.empty:
+                st.download_button(
+                    "Download postings.csv",
+                    data=all_postings.to_csv(index=False).encode("utf-8"),
+                    file_name="postings.csv",
+                    mime="text/csv",
+                )
+            else:
+                st.info("No postings to export")
+
     # --- Data source summary ---
     st.sidebar.markdown("---")
     st.sidebar.header("Data Sources")
@@ -313,6 +338,17 @@ def main():
         st.sidebar.metric("BLS Emp Projections", emp_count)
         st.sidebar.metric("Growth Metrics", metrics_count)
         st.sidebar.metric("Job Postings", post_count)
+
+        # Source breakdown
+        source_counts = con.execute("""
+            SELECT source, COUNT(*) as count
+            FROM postings
+            GROUP BY source
+            ORDER BY count DESC
+        """).fetchdf()
+        st.sidebar.markdown("**Postings by Source:**")
+        for _, row in source_counts.iterrows():
+            st.sidebar.caption(f"  {row['source']}: {row['count']}")
     except Exception:
         st.sidebar.warning("Database tables not fully populated")
     finally:
