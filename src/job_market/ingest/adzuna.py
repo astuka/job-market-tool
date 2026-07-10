@@ -1,10 +1,14 @@
 """Adzuna job posting ingest.
 
 Uses the Adzuna API to fetch:
-- /jobs/search — live postings with salary data
+- /jobs/search — live postings (with or without salary)
 - /jobs/history — historical monthly posting volume + average salary (for YoY growth)
 - /jobs/histogram — salary distribution per occupation
 - /jobs/top_companies — employer concentration (for HHI calculation)
+
+Salary filtering is no longer applied — all knowledge-work postings are ingested
+regardless of whether salary is employer-disclosed, Adzuna-predicted, or absent.
+The salary_disclosed flag is set to True only for employer-disclosed salaries.
 
 API docs: https://developer.adzuna.com/docs/
 """
@@ -107,7 +111,10 @@ def adzuna_request(endpoint: str, params: dict, max_retries: int = 5) -> dict:
 def ingest_adzuna_search(max_pages: int = 10) -> int:
     """Fetch live postings from Adzuna /jobs/search.
 
-    Filters to salary-disclosed + knowledge-work categories.
+    No salary filter — all knowledge-work postings are ingested regardless of
+    salary availability. Salary data (if present) is stored with a flag
+    indicating whether it was employer-disclosed or Adzuna-predicted.
+
     Returns number of new postings inserted.
     """
     print("[Adzuna] Fetching live postings (search)...")
@@ -115,13 +122,27 @@ def ingest_adzuna_search(max_pages: int = 10) -> int:
     all_rows = []
     total_count = 0
 
-    for category in KNOWLEDGE_WORK_CATEGORIES:
+    # Keyword queries paired with the it-jobs category for best recall.
+    # Adzuna does not support boolean OR in the 'what' param, so we issue
+    # separate queries per term.
+    SEARCH_QUERIES = [
+        ("it-jobs", "full stack engineer"),
+        ("it-jobs", "software engineer"),
+        ("it-jobs", "product engineer"),
+        ("it-jobs", "fullstack"),
+        ("it-jobs", "frontend engineer"),
+        ("it-jobs", "backend engineer"),
+        ("it-jobs", "platform engineer"),
+        ("it-jobs", "staff engineer"),
+    ]
+
+    for category, what in SEARCH_QUERIES:
         for page in range(1, max_pages + 1):
             params = {
                 "results_per_page": 50,
                 "category": category,
+                "what": what,
                 "sort_by": "date",
-                "salary_min": 1,  # Only postings with salary
                 "where": "United States",
             }
 
@@ -133,19 +154,12 @@ def ingest_adzuna_search(max_pages: int = 10) -> int:
 
             count = data.get("count", 0)
             if page == 1:
-                print(f"  [Adzuna] Category '{category}': {count} total results")
+                print(f"  [Adzuna] '{what}' ({category}): {count} total results")
 
             for job in results:
                 salary_min = job.get("salary_min", 0) or 0
                 salary_max = job.get("salary_max", 0) or 0
-
-                # Must have salary attached
-                if salary_min == 0 and salary_max == 0:
-                    continue
-
-                # Check if salary is predicted (not disclosed by employer)
-                if job.get("salary_is_predicted") == "1":
-                    continue
+                is_predicted = job.get("salary_is_predicted") == "1"
 
                 title = job.get("title", "")
                 company = (
@@ -169,13 +183,22 @@ def ingest_adzuna_search(max_pages: int = 10) -> int:
                 description = job.get("description", "")
                 redirect_url = job.get("redirect_url", "")
 
+                # Detect remote from location or description
+                desc_lower = description.lower()
+                loc_lower = location.lower()
+                is_remote = "remote" in loc_lower or "remote" in desc_lower or "work from home" in desc_lower
+
+                # salary_disclosed = True only for employer-disclosed salary
+                has_salary = salary_min > 0 or salary_max > 0
+                salary_disclosed = has_salary and not is_predicted
+
                 all_rows.append(
                     {
                         "source": "adzuna",
                         "employer": company,
                         "title": title,
                         "location": location,
-                        "remote": False,
+                        "remote": is_remote,
                         "salary_min": float(salary_min) if salary_min else None,
                         "salary_max": float(salary_max) if salary_max else None,
                         "salary_currency": "USD",
@@ -185,7 +208,7 @@ def ingest_adzuna_search(max_pages: int = 10) -> int:
                         "soc_code": None,
                         "posted_date": posted_date,
                         "fetched_date": date.today(),
-                        "salary_disclosed": True,
+                        "salary_disclosed": salary_disclosed,
                     }
                 )
                 total_count += 1
@@ -197,10 +220,10 @@ def ingest_adzuna_search(max_pages: int = 10) -> int:
             if len(results) < 50:
                 break
 
-        # Delay between categories
+        # Delay between queries
         time.sleep(2)
 
-    print(f"  [Adzuna] {total_count} postings fetched (salary-disclosed + knowledge-work)")
+    print(f"  [Adzuna] {total_count} postings fetched (knowledge-work, no salary filter)")
 
     con = get_db_connection()
     ensure_postings_table(con)
@@ -307,8 +330,8 @@ def main():
     print("Adzuna Ingest")
     print("=" * 60)
 
-    # 1. Search — live postings with salary
-    search_count = ingest_adzuna_search(max_pages=5)
+    # 1. Search — live postings (no salary filter)
+    search_count = ingest_adzuna_search(max_pages=3)
 
     # 2. History — historical posting volume + salary for YoY growth
     history_data = ingest_adzuna_history()

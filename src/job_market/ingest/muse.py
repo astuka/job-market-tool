@@ -3,9 +3,10 @@
 Fetches from https://www.themuse.com/api/public/jobs — free, no key required (500 req/hr).
 Paginated, 20 results per page.
 
-The Muse postings don't always have salary data — we filter to salary-disclosed only
-per user's requirement. Salary info is in the job description, not structured fields,
-so we extract it via regex.
+All knowledge-work postings are ingested regardless of salary availability.
+When salary is mentioned in the description, it is extracted via regex and
+salary_disclosed is set to True; otherwise salary fields are null and
+salary_disclosed is False.
 """
 
 import re
@@ -122,7 +123,9 @@ def is_knowledge_work(categories: list, levels: list, title: str) -> bool:
 
 
 def ingest_muse(max_pages: int = 20) -> int:
-    """Fetch Muse postings, filter to salary-disclosed + knowledge-work.
+    """Fetch Muse postings — all knowledge-work, no salary filter.
+
+    Salary is extracted from the description when available but is not required.
 
     Args:
         max_pages: Maximum number of pages to fetch (20 results per page).
@@ -167,13 +170,10 @@ def ingest_muse(max_pages: int = 20) -> int:
             if not is_knowledge_work(categories, levels, title):
                 continue
 
-            # Extract salary from description
+            # Extract salary from description (optional — not required)
             description = job.get("contents", "")
             salary_min, salary_max = parse_salary(description)
-
-            # Must have salary attached (user's requirement)
-            if salary_min is None and salary_max is None:
-                continue
+            has_salary = salary_min is not None and salary_max is not None
 
             # Location handling
             location_str = ", ".join(locations) if locations else "Remote"
@@ -211,7 +211,7 @@ def ingest_muse(max_pages: int = 20) -> int:
                     "soc_code": None,
                     "posted_date": posted_date,
                     "fetched_date": date.today(),
-                    "salary_disclosed": True,
+                    "salary_disclosed": has_salary,
                 }
             )
 
@@ -219,7 +219,7 @@ def ingest_muse(max_pages: int = 20) -> int:
         time.sleep(0.5)
 
     print(
-        f"  [Muse] {total_fetched} total fetched, {len(all_rows)} after filters (salary + knowledge-work)"
+        f"  [Muse] {total_fetched} total fetched, {len(all_rows)} after filters (knowledge-work only)"
     )
 
     con = get_db_connection()

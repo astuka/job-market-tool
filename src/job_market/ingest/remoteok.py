@@ -2,6 +2,10 @@
 
 Fetches from https://remoteok.com/api — free, no key required.
 Returns a single JSON array of all remote postings.
+
+All knowledge-work postings are ingested regardless of salary availability.
+When salary is present in the API response it is stored; otherwise salary
+fields are null and salary_disclosed is False.
 """
 
 from datetime import date, datetime
@@ -104,15 +108,12 @@ def ingest_remoteok() -> int:
     jobs = [item for item in data if "id" in item and "position" in item]
     print(f"  [RemoteOK] {len(jobs)} total postings fetched")
 
-    # Filter to salary-disclosed + knowledge-work + US-only
+    # Filter to knowledge-work only — no salary filter
     rows = []
     for job in jobs:
         salary_min = job.get("salary_min", 0) or 0
         salary_max = job.get("salary_max", 0) or 0
-
-        # Must have salary attached (user's requirement)
-        if salary_min == 0 and salary_max == 0:
-            continue
+        has_salary = salary_min > 0 or salary_max > 0
 
         title = job.get("position", "")
         tags = job.get("tags", [])
@@ -150,11 +151,11 @@ def ingest_remoteok() -> int:
                 "soc_code": None,
                 "posted_date": posted_date,
                 "fetched_date": date.today(),
-                "salary_disclosed": True,
+                "salary_disclosed": has_salary,
             }
         )
 
-    print(f"  [RemoteOK] {len(rows)} postings after filters (salary + knowledge-work)")
+    print(f"  [RemoteOK] {len(rows)} postings after filters (knowledge-work only)")
 
     con = get_db_connection()
     ensure_postings_table(con)

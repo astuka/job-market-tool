@@ -172,7 +172,9 @@ def ingest_usajobs(max_pages: int = 10) -> int:
                         pass
 
             if salary_min is None and salary_max is None:
-                continue  # No salary data, skip per user requirement
+                # No salary data — still ingest the posting, just without salary
+                salary_min = None
+                salary_max = None
 
             posted_str = job.get("PublicationStartDate", "")
             posted_date = None
@@ -202,7 +204,7 @@ def ingest_usajobs(max_pages: int = 10) -> int:
                     "soc_code": None,
                     "posted_date": posted_date,
                     "fetched_date": date.today(),
-                    "salary_disclosed": True,
+                    "salary_disclosed": salary_min is not None,
                 }
             )
 
